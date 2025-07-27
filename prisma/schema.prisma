@@ -1,0 +1,178 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  RESTAURANT_OWNER
+  CUSTOMER
+}
+
+model User {
+  id String @id @default(uuid())
+
+  email        String? @unique
+  passwordHash String?
+
+  telegramUserId String  @unique
+  telegramChatId String?
+  username       String?
+
+  role          UserRole
+  isActive      Boolean  @default(true)
+  paymentStatus String?
+
+  restaurantId String?
+  restaurant   Restaurant? @relation("RestaurantOwners", fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Order     Order[]
+
+  @@index([restaurantId])
+  @@index([telegramUserId])
+}
+
+model Restaurant {
+  id           String  @id @default(uuid())
+  name         String
+  contactEmail String?
+  contactPhone String?
+  isActive     Boolean @default(true)
+
+  owners User[] @relation("RestaurantOwners")
+
+  bot BotInstance?
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  MenuCategory MenuCategory[]
+  Order        Order[]
+}
+
+model BotInstance {
+  id           String  @id @default(uuid())
+  botToken     String  @unique
+  botUsername  String?
+  isWebhookSet Boolean @default(false)
+  isActive     Boolean @default(true)
+
+  restaurantId String     @unique
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  welcomeMessage String?
+  logoUrl        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MenuCategory {
+  id           String  @id @default(uuid())
+  name         String
+  displayOrder Int?
+  isActive     Boolean @default(true)
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  items MenuItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+}
+
+model MenuItem {
+  id           String  @id @default(uuid())
+  name         String
+  description  String?
+  price        Decimal
+  imageUrl     String?
+  displayOrder Int?
+  isActive     Boolean @default(true)
+
+  // TODO: Возможные дополнительные поля в будущем
+  // weight        String?
+  // ingredients   String[]
+
+  categoryId String
+  category   MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  OrderItem OrderItem[]
+
+  @@index([categoryId])
+}
+
+enum OrderStatus {
+  PENDING // Ожидает подтверждения рестораном
+  CONFIRMED // Подтвержден рестораном
+  PREPARING // Готовится
+  DELIVERING // В процессе доставки
+  COMPLETED // Доставлен/Завершен
+  CANCELLED_BY_USER // Отменен клиентом
+  CANCELLED_BY_RESTAURANT // Отменен рестораном
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  orderNumber String?
+  status      OrderStatus @default(PENDING)
+  totalPrice  Decimal
+
+  customerName    String
+  customerPhone   String
+  deliveryAddress String
+  customerComment String?
+
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  customerTelegramUserId String?
+
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([restaurantId])
+  @@index([userId])
+  @@index([status])
+  @@index([customerTelegramUserId])
+}
+
+model OrderItem {
+  id           String  @id @default(uuid())
+  quantity     Int
+  priceAtOrder Decimal
+  totalPrice   Decimal
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
