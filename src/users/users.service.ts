@@ -2,40 +2,88 @@ import {
 	Injectable,
 	InternalServerErrorException,
 	NotFoundException,
-} from '@nestjs/common'
-import { Prisma, User, UserRole } from '@prisma/client'
-import * as bcrypt from 'bcrypt'
-import { PrismaService } from 'src/prisma/prisma.service'
-import { CreateRestaurantOwnerDto } from './dto/create-restaurant-owner.dto'
+} from "@nestjs/common"
+import { Prisma, Restaurant, User, UserRole } from "@prisma/client"
+import { PrismaService } from "src/prisma/prisma.service"
+import { CreateRestaurantOwnerDto } from "./dto/create-restaurant-owner.dto"
+import { CreateUserDto } from "./dto/create-user.dto"
+import { UpdateUserDto } from "./dto/update-user.dto"
+import { UserWithRestaurant } from "./types/users.types"
 
 @Injectable()
 export class UsersService {
 	constructor(private prisma: PrismaService) {}
 
+	async create(createUserDto: CreateUserDto): Promise<User> {
+		return this.createUser({
+			telegramUserId: createUserDto.telegramUserId,
+			username: createUserDto.username,
+			role: createUserDto.role,
+		})
+	}
+
+	async findAll(): Promise<User[]> {
+		return this.prisma.user.findMany()
+	}
+
+	async findOneById(
+		id: string
+	): Promise<(User & { restaurant: Restaurant | null }) | null> {
+		return this.prisma.user.findUnique({
+			where: { id },
+			include: {
+				restaurant: true,
+			},
+		})
+	}
+
+	async update(
+		id: string,
+		updateUserDto: UpdateUserDto
+	): Promise<UserWithRestaurant> {
+		try {
+			const updatedUser = await this.prisma.user.update({
+				where: { id },
+				data: updateUserDto,
+				include: {
+					restaurant: true,
+				},
+			})
+
+			return updatedUser
+		} catch (error) {
+			if (
+				error instanceof Prisma.PrismaClientKnownRequestError &&
+				error.code === "P2025"
+			) {
+				throw new NotFoundException(
+					`Пользователь с ID "${id}" для обновления не найден.`
+				)
+			}
+
+			console.error(`Error updating user ${id}:`, error)
+
+			throw new InternalServerErrorException(
+				"Не удалось обновить пользователя."
+			)
+		}
+	}
+
 	async createUser(userData: {
 		email?: string | null
-		passwordPlainText?: string | null
 		role: UserRole
 		telegramUserId: string
-		username?: string
+		username?: string | null
 		isActive?: boolean
 		restaurantId?: string | null
 	}): Promise<User> {
-		let passwordHash: string | null = null
-
-		if (userData.passwordPlainText) {
-			const saltRounds = 10
-			passwordHash = await bcrypt.hash(userData.passwordPlainText, saltRounds)
-		}
-
 		if (userData.restaurantId) {
 			const restaurantExists = await this.prisma.restaurant.findUnique({
 				where: { id: userData.restaurantId },
 			})
-
 			if (!restaurantExists) {
 				throw new NotFoundException(
-					`Ресторан с ID "${userData.restaurantId}" не найден. Невозможно привязать пользователя.`
+					`Ресторан с ID "${userData.restaurantId}" не найден.`
 				)
 			}
 		}
@@ -43,25 +91,24 @@ export class UsersService {
 		try {
 			return await this.prisma.user.create({
 				data: {
+					telegramUserId: userData.telegramUserId,
 					email: userData.email,
 					username: userData.username,
-					passwordHash: passwordHash,
 					role: userData.role,
 					isActive: userData.isActive ?? true,
-					telegramUserId: userData.telegramUserId,
 					restaurantId: userData.restaurantId,
 				},
 			})
 		} catch (error) {
 			if (
 				error instanceof Prisma.PrismaClientKnownRequestError &&
-				error.code === 'P2002'
+				error.code === "P2002"
 			) {
-				let field = 'неизвестное поле'
+				let field = "неизвестное поле"
 
 				if (Array.isArray(error.meta?.target) && error.meta.target.length > 0) {
-					field = error.meta.target.join(', ')
-				} else if (typeof error.meta?.target === 'string') {
+					field = error.meta.target.join(", ")
+				} else if (typeof error.meta?.target === "string") {
 					field = error.meta.target
 				}
 
@@ -70,21 +117,20 @@ export class UsersService {
 				)
 			}
 
-			console.error('Error creating user:', error)
+			console.error("Error creating user:", error)
 
 			throw new InternalServerErrorException(
-				'Не удалось создать пользователя по неизвестной причине.'
+				"Не удалось создать пользователя по неизвестной причине."
 			)
 		}
 	}
 
 	async createRestaurantOwner(dto: CreateRestaurantOwnerDto): Promise<User> {
 		return this.createUser({
-			email: dto.email,
-			passwordPlainText: dto.password,
-			role: UserRole.RESTAURANT_OWNER,
 			telegramUserId: dto.telegramUserId,
 			username: dto.username,
+			email: dto.email,
+			role: UserRole.RESTAURANT_OWNER,
 			restaurantId: dto.restaurantId,
 			isActive: true,
 		})
@@ -95,12 +141,6 @@ export class UsersService {
 
 		return this.prisma.user.findUnique({
 			where: { email },
-		})
-	}
-
-	async findOneById(id: string): Promise<User | null> {
-		return this.prisma.user.findUnique({
-			where: { id },
 		})
 	}
 

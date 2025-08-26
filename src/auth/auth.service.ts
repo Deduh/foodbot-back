@@ -1,93 +1,89 @@
-import {
-	ConflictException,
-	Injectable,
-	InternalServerErrorException,
-} from '@nestjs/common'
-import { JwtService } from '@nestjs/jwt'
-import { User, UserRole } from '@prisma/client'
-import * as bcrypt from 'bcrypt'
-import { UsersService } from 'src/users/users.service'
-import { CreateUserDto } from './dto/create-user.dto'
-import { JwtPayload } from './types/jwt.types'
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
+import { JwtService } from "@nestjs/jwt"
+import { User, UserRole } from "@prisma/client"
+import * as crypto from "crypto"
+import { TelegramUserData } from "src/common/types/telegram.types"
+import { UsersService } from "src/users/users.service"
+import { TelegramLoginDto } from "./dto/telegram-login.dto"
+import { JwtPayload } from "./types/jwt.types"
 
 @Injectable()
 export class AuthService {
+	private readonly logger = new Logger(AuthService.name)
+
 	constructor(
 		private usersService: UsersService,
-		private jwtService: JwtService
+		private jwtService: JwtService,
+		private configService: ConfigService
 	) {}
 
-	async validateUser(
-		email: string,
-		pass: string
-	): Promise<Omit<User, 'passwordHash'> | null> {
-		if (!email) {
-			return null
+	async loginViaTelegram(dto: TelegramLoginDto) {
+		const userFromTelegram = this.validateTelegramInitData(dto.initData)
+
+		if (!userFromTelegram) {
+			throw new UnauthorizedException("Невалидные данные от Telegram.")
 		}
 
-		const user = await this.usersService.findOneByEmail(email)
+		const telegramUserId = userFromTelegram.id.toString()
 
-		if (
-			user &&
-			user.passwordHash &&
-			(await bcrypt.compare(pass, user.passwordHash))
-		) {
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { passwordHash, ...result } = user
-			return result
+		let user = await this.usersService.findOneByTelegramUserId(telegramUserId)
+
+		if (!user) {
+			this.logger.log(`User ${telegramUserId} not found. Creating new user.`)
+
+			user = await this.usersService.create({
+				telegramUserId: telegramUserId,
+				username: userFromTelegram.username,
+				role: UserRole.CUSTOMER,
+			})
 		}
 
-		return null
+		return this.login(user)
 	}
 
-	login(user: Omit<User, 'passwordHash'>) {
+	login(user: User) {
 		const payload: JwtPayload = {
 			sub: user.id,
-			email: user.email,
+			telegramUserId: user.telegramUserId,
 			role: user.role,
-			restaurantId:
-				user.role === UserRole.RESTAURANT_OWNER ? user.restaurantId : null,
+			restaurantId: user.restaurantId,
 		}
-
 		return {
 			access_token: this.jwtService.sign(payload),
 		}
 	}
 
-	async register(
-		createUserDto: CreateUserDto
-	): Promise<{ user: Omit<User, 'passwordHash'>; access_token: string }> {
-		try {
-			const newUser = await this.usersService.createUser({
-				email: createUserDto.email,
-				passwordPlainText: createUserDto.password,
-				role: createUserDto.role,
-				username: createUserDto.username,
-				telegramUserId: createUserDto.telegramUserId,
-			})
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { passwordHash, ...userResult } = newUser
+	private validateTelegramInitData(initData: string): TelegramUserData | null {
+		const params = new URLSearchParams(initData)
+		const hash = params.get("hash")
+		params.delete("hash")
 
-			const tokenPayload = this.login(userResult)
+		const sortedKeys = Array.from(params.keys()).sort()
+		const dataCheckString = sortedKeys
+			.map(key => `${key}=${params.get(key)}`)
+			.join("\n")
 
-			return {
-				user: userResult,
-				access_token: tokenPayload.access_token,
-			}
-		} catch (error) {
-			if (
-				error instanceof Error &&
-				typeof error.message === 'string' &&
-				error.message.includes('уже существует')
-			) {
-				throw new ConflictException(error.message)
-			}
+		const secretKey = crypto
+			.createHmac("sha256", "WebAppData")
+			.update(this.configService.get<string>("ADMIN_BOT_TOKEN")!)
+			.digest()
 
-			console.error('Error during registration in AuthService:', error)
+		const calculatedHash = crypto
+			.createHmac("sha256", secretKey)
+			.update(dataCheckString)
+			.digest("hex")
 
-			throw new InternalServerErrorException(
-				'Не удалось зарегистрировать пользователя.'
-			)
+		if (calculatedHash === hash) {
+			const userString = params.get("user")
+
+			if (!userString) return null
+
+			const user = JSON.parse(userString) as TelegramUserData
+
+			return user
 		}
+
+		return null
 	}
 }

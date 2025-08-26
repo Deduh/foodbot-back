@@ -1,46 +1,51 @@
+import { ApiProperty } from "@nestjs/swagger"
 import {
-	IsBoolean,
-	IsInt,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
-	IsPositive,
 	IsString,
 	IsUUID,
 	Min,
-} from 'class-validator'
+} from "class-validator"
 
 export class CreateMenuItemDto {
+	@ApiProperty({ example: "Пепперони", description: "Название блюда" })
 	@IsString()
-	@IsNotEmpty()
+	@IsNotEmpty({ message: "Название блюда не должно быть пустым." })
 	name: string
 
+	@ApiProperty({ example: "199,99", description: "Цена блюда" })
+	@IsNumber(
+		{ maxDecimalPlaces: 2 },
+		{
+			message:
+				"Цена должна быть числом с максимум двумя знаками после запятой.",
+		}
+	)
+	@Min(0, { message: "Цена не может быть отрицательной." })
+	price: number
+
+	@ApiProperty({
+		example: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+		description: "ID категории",
+	})
+	@IsUUID("4", { message: "ID категории должен быть в формате UUID." })
+	@IsNotEmpty()
+	categoryId: string
+
+	@ApiProperty({
+		example: "Пицца с колбасками и сыром",
+		description: "Описание блюда",
+	})
 	@IsOptional()
 	@IsString()
 	description?: string
 
-	@IsNumber(
-		{ maxDecimalPlaces: 2 },
-		{ message: 'Цена должна быть числом с максимум 2 знаками после запятой.' }
-	)
-	@IsPositive({ message: 'Цена должна быть положительным числом.' })
-	@IsNotEmpty()
-	price: number
-
+	@ApiProperty({
+		example: "https://example.com/image.jpg",
+		description: "Ссылка на изображение блюда",
+	})
 	@IsOptional()
 	@IsString()
 	imageUrl?: string
-
-	@IsOptional()
-	@IsInt()
-	@Min(0)
-	displayOrder?: number
-
-	@IsOptional()
-	@IsBoolean()
-	isActive?: boolean
-
-	@IsUUID('4', { message: 'categoryId должен быть валидным UUID.' })
-	@IsNotEmpty()
-	categoryId: string
 }

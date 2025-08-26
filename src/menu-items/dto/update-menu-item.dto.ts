@@ -1,41 +1,58 @@
+import { ApiProperty } from "@nestjs/swagger"
 import {
 	IsBoolean,
 	IsInt,
 	IsNotEmpty,
 	IsNumber,
 	IsOptional,
-	IsPositive,
 	IsString,
 	Min,
-} from 'class-validator'
+} from "class-validator"
 
 export class UpdateMenuItemDto {
+	@ApiProperty({
+		example: "Маргарита",
+		description: "Название блюда",
+	})
 	@IsOptional()
 	@IsString()
 	@IsNotEmpty()
 	name?: string
 
+	@ApiProperty({ example: "199,99", description: "Цена блюда" })
+	@IsOptional()
+	@IsNumber({ maxDecimalPlaces: 2 })
+	@Min(0)
+	price?: number
+
+	@ApiProperty({
+		example: "Пицца с колбасками и сыром",
+		description: "Описание блюда",
+	})
 	@IsOptional()
 	@IsString()
 	description?: string
 
-	@IsOptional()
-	@IsNumber(
-		{ maxDecimalPlaces: 2 },
-		{ message: 'Цена должна быть числом с максимум 2 знаками после запятой.' }
-	)
-	@IsPositive({ message: 'Цена должна быть положительным числом.' })
-	price?: number
-
+	@ApiProperty({
+		example: "https://example.com/image.jpg",
+		description: "Ссылка на изображение блюда",
+	})
 	@IsOptional()
 	@IsString()
 	imageUrl?: string
 
+	@ApiProperty({
+		example: "3",
+		description: "Порядковый номер в меню",
+	})
 	@IsOptional()
 	@IsInt()
-	@Min(0)
 	displayOrder?: number
 
+	@ApiProperty({
+		example: "true",
+		description: "Статус активности",
+	})
 	@IsOptional()
 	@IsBoolean()
 	isActive?: boolean

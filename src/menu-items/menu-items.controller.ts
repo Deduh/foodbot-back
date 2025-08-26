@@ -11,60 +11,64 @@ import {
 	Post,
 	Request,
 	UseGuards,
-} from '@nestjs/common'
-import { MenuItem } from '@prisma/client'
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard'
-import { RequestWithJwtUser } from 'src/auth/types/auth.types'
-import { CreateMenuItemDto } from './dto/create-menu-item.dto'
-import { UpdateMenuItemDto } from './dto/update-menu-item.dto'
-import { MenuItemsService } from './menu-items.service'
+} from "@nestjs/common"
+import { UserRole } from "@prisma/client"
+import { Roles } from "src/auth/decorators/roles.decorator"
+import { JwtAuthGuard } from "src/auth/guards/jwt-auth.guard"
+import { RolesGuard } from "src/auth/guards/roles.guard"
+import { RequestWithJwtUser } from "src/auth/types/auth.types"
+import { CreateMenuItemDto } from "./dto/create-menu-item.dto"
+import { UpdateMenuItemDto } from "./dto/update-menu-item.dto"
+import { MenuItemsService } from "./menu-items.service"
 
-@Controller('menu-items')
-@UseGuards(JwtAuthGuard)
+@Controller("menu-items")
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class MenuItemsController {
 	constructor(private readonly menuItemsService: MenuItemsService) {}
 
 	@Post()
-	@HttpCode(HttpStatus.CREATED)
+	@Roles(UserRole.RESTAURANT_OWNER, UserRole.ADMIN)
 	async create(
-		@Body() createMenuItemDto: CreateMenuItemDto,
+		@Body() dto: CreateMenuItemDto,
 		@Request() req: RequestWithJwtUser
-	): Promise<MenuItem> {
-		return this.menuItemsService.create(createMenuItemDto, req.user)
+	) {
+		const ownerId = req.user.userId
+
+		return this.menuItemsService.create(dto, ownerId)
 	}
 
-	@Get('category/:categoryId')
-	async findAllByMenuCategory(
-		@Param('categoryId', new ParseUUIDPipe({ version: '4' }))
-		categoryId: string,
+	@Get("by-category/:categoryId")
+	@Roles(UserRole.RESTAURANT_OWNER, UserRole.ADMIN)
+	async findAllByCategory(
+		@Param("categoryId", new ParseUUIDPipe()) categoryId: string,
 		@Request() req: RequestWithJwtUser
-	): Promise<MenuItem[]> {
-		return this.menuItemsService.findAllByMenuCategory(categoryId, req.user)
+	) {
+		const ownerId = req.user.userId
+
+		return this.menuItemsService.findAllByCategory(categoryId, ownerId)
 	}
 
-	@Get(':id')
-	async findOne(
-		@Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-		@Request() req: RequestWithJwtUser
-	): Promise<MenuItem> {
-		return this.menuItemsService.findOne(id, req.user)
-	}
-
-	@Patch(':id')
+	@Patch(":id")
+	@Roles(UserRole.RESTAURANT_OWNER, UserRole.ADMIN)
 	async update(
-		@Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-		@Body() updateMenuItemDto: UpdateMenuItemDto,
+		@Param("id", new ParseUUIDPipe()) itemId: string,
+		@Body() dto: UpdateMenuItemDto,
 		@Request() req: RequestWithJwtUser
-	): Promise<MenuItem> {
-		return this.menuItemsService.update(id, updateMenuItemDto, req.user)
+	) {
+		const ownerId = req.user.userId
+
+		return this.menuItemsService.update(itemId, dto, ownerId)
 	}
 
-	@Delete(':id')
+	@Delete(":id")
+	@Roles(UserRole.RESTAURANT_OWNER, UserRole.ADMIN)
 	@HttpCode(HttpStatus.NO_CONTENT)
 	async remove(
-		@Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+		@Param("id", new ParseUUIDPipe()) itemId: string,
 		@Request() req: RequestWithJwtUser
-	): Promise<void> {
-		await this.menuItemsService.remove(id, req.user)
+	) {
+		const ownerId = req.user.userId
+
+		await this.menuItemsService.remove(itemId, ownerId)
 	}
 }

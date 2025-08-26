@@ -1,15 +1,15 @@
-import { UserRole } from '@prisma/client'
+import { UserRole } from "@prisma/client"
 
 export interface JwtPayload {
 	sub: string
-	email?: string | null
+	telegramUserId: string
 	role: UserRole
-	restaurantId?: string | null
+	restaurantId: string | null
 }
 
 export interface AuthenticatedUser {
 	userId: string
-	email?: string | null
+	telegramUserId: string
 	role: UserRole
-	restaurantId?: string | null
+	restaurantId: string | null
 }

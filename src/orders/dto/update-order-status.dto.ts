@@ -1,8 +1,8 @@
-import { OrderStatus } from '@prisma/client'
-import { IsEnum, IsNotEmpty } from 'class-validator'
+import { OrderStatus } from "@prisma/client"
+import { IsEnum, IsNotEmpty } from "class-validator"
 
 export class UpdateOrderStatusDto {
-	@IsEnum(OrderStatus, { message: 'Недопустимое значение для статуса заказа.' })
-	@IsNotEmpty({ message: 'Статус заказа не должен быть пустым.' })
+	@IsEnum(OrderStatus, { message: "Указан неверный статус заказа." })
+	@IsNotEmpty()
 	status: OrderStatus
 }

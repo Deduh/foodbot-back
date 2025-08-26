@@ -1,29 +1,26 @@
-import { HttpService } from '@nestjs/axios'
+import { HttpService } from "@nestjs/axios"
 import {
 	BadRequestException,
 	Injectable,
 	InternalServerErrorException,
 	Logger,
 	NotFoundException,
-} from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { BotInstance, Prisma } from '@prisma/client'
-import axios from 'axios'
-import * as crypto from 'crypto'
-import { firstValueFrom } from 'rxjs'
+} from "@nestjs/common"
+import { ConfigService } from "@nestjs/config"
+import { BotInstance, Prisma } from "@prisma/client"
+import axios from "axios"
+import { firstValueFrom } from "rxjs"
 import {
 	TelegramBotInfo,
 	TelegramResponse,
-} from 'src/common/types/telegram.types'
-import { PrismaService } from 'src/prisma/prisma.service'
-import { AES_GCM_ALGORITHM } from './constants/bot-instances.constants'
-import { CreateBotInstanceDto } from './dto/create-bot-instance.dto'
-import { UpdateBotInstanceDto } from './dto/update-bot-instance.dto'
+} from "src/common/types/telegram.types"
+import { EncryptionService } from "src/encryption/encryption.service"
+import { PrismaService } from "src/prisma/prisma.service"
+import { CreateBotInstanceDto } from "./dto/create-bot-instance.dto"
+import { UpdateBotInstanceDto } from "./dto/update-bot-instance.dto"
 
 @Injectable()
 export class BotInstancesService {
-	private readonly encryptionKey: Buffer
-	private readonly encryptionIv: Buffer
 	private readonly logger = new Logger(BotInstancesService.name)
 	private readonly telegramApiBaseUrl: string
 	private readonly botWebhookBaseUrl: string
@@ -31,123 +28,33 @@ export class BotInstancesService {
 	constructor(
 		private prisma: PrismaService,
 		private configService: ConfigService,
-		private readonly httpService: HttpService
+		private readonly httpService: HttpService,
+		private readonly encryptionService: EncryptionService
 	) {
-		const key = this.configService.get<string>('BOT_TOKEN_ENCRYPTION_KEY')
-		const iv = this.configService.get<string>('BOT_TOKEN_ENCRYPTION_IV')
-
-		if (!key || !iv) {
-			this.logger.error('Encryption key or IV is not defined for bot tokens.')
-
-			throw new InternalServerErrorException(
-				'Ключ или вектор инициализации для шифрования токенов бота не определены.'
-			)
-		}
-
-		if (key.length !== 64 || iv.length !== 32) {
-			this.logger.error('Invalid length for encryption key or IV.')
-
-			throw new InternalServerErrorException(
-				'Ключ шифрования должен быть 32 байта (64 hex символа), а вектор инициализации 16 байт (32 hex символа).'
-			)
-		}
-
-		this.encryptionKey = Buffer.from(key, 'hex')
-		this.encryptionIv = Buffer.from(iv, 'hex')
 		this.telegramApiBaseUrl = this.configService.get<string>(
-			'TELEGRAM_API_BASE_URL',
-			'https://api.telegram.org'
+			"TELEGRAM_API_BASE_URL",
+			"https://api.telegram.org"
 		)
 
 		const webhookBaseUrlFromConfig = this.configService.get<string>(
-			'BOT_WEBHOOK_BASE_URL'
+			"BOT_WEBHOOK_BASE_URL"
 		)
 
 		if (!webhookBaseUrlFromConfig) {
 			this.logger.error(
-				'BOT_WEBHOOK_BASE_URL is not defined in environment variables.'
+				"BOT_WEBHOOK_BASE_URL is not defined in environment variables."
 			)
 			throw new InternalServerErrorException(
-				'Базовый URL для вебхуков бота не определен в .env файле.'
+				"Базовый URL для вебхуков бота не определен в .env файле."
 			)
 		}
 
 		this.botWebhookBaseUrl = webhookBaseUrlFromConfig
 	}
 
-	private encryptToken(token: string): string {
-		try {
-			const cipher = crypto.createCipheriv(
-				AES_GCM_ALGORITHM,
-				this.encryptionKey,
-				this.encryptionIv
-			)
-
-			let encrypted = cipher.update(token, 'utf8', 'hex')
-			encrypted += cipher.final('hex')
-
-			const authTag = cipher.getAuthTag().toString('hex')
-
-			return `${encrypted}:${authTag}`
-		} catch (error) {
-			if (error instanceof Error) {
-				this.logger.error('Token encryption failed', error.stack)
-			} else {
-				this.logger.error(
-					'Token encryption failed with unknown error type',
-					error
-				)
-			}
-
-			throw new InternalServerErrorException('Ошибка шифрования токена.')
-		}
-	}
-
-	private decryptToken(encryptedTokenWithAuthTag: string): string {
-		try {
-			const parts = encryptedTokenWithAuthTag.split(':')
-
-			if (parts.length !== 2) {
-				this.logger.warn(
-					`Invalid encrypted token format for token: ${encryptedTokenWithAuthTag.substring(0, 10)}...`
-				)
-
-				throw new Error('Invalid encrypted token format (missing authTag).')
-			}
-
-			const encryptedToken = parts[0]
-			const authTag = Buffer.from(parts[1], 'hex')
-
-			const decipher = crypto.createDecipheriv(
-				AES_GCM_ALGORITHM,
-				this.encryptionKey,
-				this.encryptionIv
-			)
-
-			decipher.setAuthTag(authTag)
-
-			let decrypted = decipher.update(encryptedToken, 'hex', 'utf8')
-
-			decrypted += decipher.final('utf8')
-
-			return decrypted
-		} catch (error) {
-			if (error instanceof Error) {
-				this.logger.error('Token decryption failed', error.stack)
-			} else {
-				this.logger.error(
-					'Token decryption failed with unknown error type',
-					error
-				)
-			}
-
-			throw new InternalServerErrorException('Ошибка дешифрования токена.')
-		}
-	}
-
 	async create(
 		dto: CreateBotInstanceDto
-	): Promise<Omit<BotInstance, 'botToken'>> {
+	): Promise<Omit<BotInstance, "botToken">> {
 		const restaurant = await this.prisma.restaurant.findUnique({
 			where: { id: dto.restaurantId },
 		})
@@ -174,7 +81,7 @@ export class BotInstancesService {
 				)
 
 				throw new BadRequestException(`
-					Невалидный токен бота или не удалось получить информацию о боте. ${response.data?.description || ''},
+					Невалидный токен бота или не удалось получить информацию о боте. ${response.data?.description || ""},
 					`)
 			}
 
@@ -182,10 +89,10 @@ export class BotInstancesService {
 
 			if (
 				dto.botUsername &&
-				dto.botUsername.replace('@', '') !== actualBotUsername
+				dto.botUsername.replace("@", "") !== actualBotUsername
 			) {
 				this.logger.warn(
-					`Provided botUsername @${dto.botUsername.replace('@', '')} does not match actual @${actualBotUsername} for token ${dto.botToken.substring(0, 10)}... Using actual username.`
+					`Provided botUsername @${dto.botUsername.replace("@", "")} does not match actual @${actualBotUsername} for token ${dto.botToken.substring(0, 10)}... Using actual username.`
 				)
 			}
 		} catch (error) {
@@ -204,11 +111,11 @@ export class BotInstancesService {
 			}
 
 			throw new BadRequestException(
-				'Не удалось проверить токен бота. Убедитесь, что токен корректен.'
+				"Не удалось проверить токен бота. Убедитесь, что токен корректен."
 			)
 		}
 
-		const encryptedBotToken = this.encryptToken(dto.botToken)
+		const encryptedBotToken = this.encryptionService.encrypt(dto.botToken)
 		let newBotInstance: BotInstance
 
 		try {
@@ -226,15 +133,15 @@ export class BotInstancesService {
 			const { botToken, ...result } = newBotInstance
 		} catch (error) {
 			if (error instanceof Prisma.PrismaClientKnownRequestError) {
-				if (error.code === 'P2002') {
-					let field = 'неизвестное поле'
+				if (error.code === "P2002") {
+					let field = "неизвестное поле"
 
 					if (
 						Array.isArray(error.meta?.target) &&
 						error.meta.target.length > 0
 					) {
-						field = error.meta.target.join(', ')
-					} else if (typeof error.meta?.target === 'string') {
+						field = error.meta.target.join(", ")
+					} else if (typeof error.meta?.target === "string") {
 						field = error.meta.target
 					}
 
@@ -249,16 +156,16 @@ export class BotInstancesService {
 			}
 
 			if (error instanceof Error) {
-				this.logger.error('Failed to create bot instance in DB:', error.stack)
+				this.logger.error("Failed to create bot instance in DB:", error.stack)
 			} else {
 				this.logger.error(
-					'Failed to create bot instance in DB with unknown error type:',
+					"Failed to create bot instance in DB with unknown error type:",
 					error
 				)
 			}
 
 			throw new InternalServerErrorException(
-				'Не удалось сохранить экземпляр бота.'
+				"Не удалось сохранить экземпляр бота."
 			)
 		}
 
@@ -278,7 +185,7 @@ export class BotInstancesService {
 				)
 
 				throw new InternalServerErrorException(
-					`Не удалось установить вебхук для бота: ${webhookResponse.data?.description || 'неизвестная ошибка Telegram'}.`
+					`Не удалось установить вебхук для бота: ${webhookResponse.data?.description || "неизвестная ошибка Telegram"}.`
 				)
 			}
 
@@ -292,9 +199,9 @@ export class BotInstancesService {
 			})
 
 			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { botToken, ...result } = updatedBotInstance
+			const { botToken, ...resultWithoutToken } = updatedBotInstance
 
-			return result as Omit<BotInstance, 'botToken'>
+			return resultWithoutToken
 		} catch (error) {
 			this.logger.error(
 				`Error setting webhook for bot ${newBotInstance.id} (@${actualBotUsername}):`,
@@ -309,7 +216,7 @@ export class BotInstancesService {
 
 	async findOneByRestaurantId(
 		restaurantId: string
-	): Promise<Omit<BotInstance, 'botToken'>> {
+	): Promise<Omit<BotInstance, "botToken">> {
 		const botInstance = await this.prisma.botInstance.findUnique({
 			where: { restaurantId },
 		})
@@ -321,12 +228,12 @@ export class BotInstancesService {
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		const { botToken, ...result } = botInstance
+		const { botToken, ...resultWithoutToken } = botInstance
 
-		return result as Omit<BotInstance, 'botToken'>
+		return resultWithoutToken
 	}
 
-	async findOne(id: string): Promise<Omit<BotInstance, 'botToken'>> {
+	async findOne(id: string): Promise<Omit<BotInstance, "botToken">> {
 		const botInstance = await this.prisma.botInstance.findUnique({
 			where: { id },
 		})
@@ -336,15 +243,15 @@ export class BotInstancesService {
 		}
 
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		const { botToken, ...result } = botInstance
+		const { botToken, ...resultWithoutToken } = botInstance
 
-		return result as Omit<BotInstance, 'botToken'>
+		return resultWithoutToken
 	}
 
 	async update(
 		id: string,
 		updateDto: UpdateBotInstanceDto
-	): Promise<Omit<BotInstance, 'botToken'>> {
+	): Promise<Omit<BotInstance, "botToken">> {
 		await this.findOne(id)
 
 		try {
@@ -357,18 +264,18 @@ export class BotInstancesService {
 				},
 			})
 			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { botToken, ...result } = updatedBotInstance
+			const { botToken, ...resultWithoutToken } = updatedBotInstance
 
-			return result as Omit<BotInstance, 'botToken'>
+			return resultWithoutToken
 		} catch (error) {
 			this.logger.error(`Failed to update bot instance ${id}:`, error)
 			throw new InternalServerErrorException(
-				'Не удалось обновить экземпляр бота.'
+				"Не удалось обновить экземпляр бота."
 			)
 		}
 	}
 
-	async remove(id: string): Promise<Omit<BotInstance, 'botToken'>> {
+	async remove(id: string): Promise<Omit<BotInstance, "botToken">> {
 		const botInstanceToRemove = await this.prisma.botInstance.findUnique({
 			where: { id },
 		})
@@ -382,7 +289,9 @@ export class BotInstancesService {
 		let originalToken: string | null = null
 
 		try {
-			originalToken = this.decryptToken(botInstanceToRemove.botToken)
+			originalToken = this.encryptionService.decrypt(
+				botInstanceToRemove.botToken
+			)
 		} catch (decryptionError) {
 			if (decryptionError instanceof Error) {
 				this.logger.error(
@@ -410,7 +319,7 @@ export class BotInstancesService {
 					`Webhook for bot ${id} (@${botInstanceToRemove.botUsername}) successfully deleted from Telegram.`
 				)
 			} catch (error) {
-				let errorMessage = 'Unknown error'
+				let errorMessage = "Unknown error"
 
 				if (axios.isAxiosError(error) && error.response?.data) {
 					const telegramError = error.response.data as TelegramResponse<unknown>
@@ -435,13 +344,13 @@ export class BotInstancesService {
 			})
 
 			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { botToken, ...result } = deletedBotInstance
+			const { botToken, ...resultWithoutToken } = deletedBotInstance
 
-			return result as Omit<BotInstance, 'botToken'>
+			return resultWithoutToken
 		} catch (error) {
 			if (
 				error instanceof Prisma.PrismaClientKnownRequestError &&
-				error.code === 'P2025'
+				error.code === "P2025"
 			) {
 				throw new NotFoundException(
 					`Экземпляр бота с ID "${id}" для удаления не найден.`
@@ -450,7 +359,7 @@ export class BotInstancesService {
 
 			this.logger.error(`Failed to delete bot instance ${id}:`, error)
 			throw new InternalServerErrorException(
-				'Не удалось удалить экземпляр бота.'
+				"Не удалось удалить экземпляр бота."
 			)
 		}
 	}
